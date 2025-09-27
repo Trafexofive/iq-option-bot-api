@@ -1,0 +1,16 @@
+version: '3.8'
+
+# Lightweight test configuration - just LLM Gateway
+services:
+  llm-gateway:
+    build: ../services/llm_gateway
+    container_name: iq-llm-gateway
+    ports:
+      - "8001:8001"
+    environment:
+      - ENABLE_GEMINI=true
+      - ENABLE_GROQ=false
+      - ENABLE_GITHUB_MODELS=false
+      - ENABLE_OLLAMA=false
+    env_file:
+      - ../.env

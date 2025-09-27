@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  trading-bot:
+    build: ../services/trading-bot
+    container_name: iq-trading-bot
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/trading_bot
+      - REDIS_URL=redis://redis:6379
+      - LLM_GATEWAY_URL=http://llm-gateway:8001
+      - LOG_LEVEL=INFO
+    depends_on:
+      - db
+      - redis
+      - llm-gateway
+    volumes:
+      - ../services/trading-bot/src:/app/src
+    env_file:
+      - ../.env
+
+  trading-worker:
+    build: ../services/trading-bot
+    container_name: iq-trading-worker
+    command: python -m src.core.trading.worker
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/trading_bot
+      - REDIS_URL=redis://redis:6379
+      - LLM_GATEWAY_URL=http://llm-gateway:8001
+      - LOG_LEVEL=INFO
+    depends_on:
+      - db
+      - redis
+      - llm-gateway
+    volumes:
+      - ../services/trading-bot/src:/app/src
+    env_file:
+      - ../.env
+
+  llm-gateway:
+    build: ../services/llm_gateway
+    container_name: iq-llm-gateway
+    ports:
+      - "8001:8001"
+    environment:
+      - ENABLE_GEMINI=true
+      - ENABLE_GROQ=false
+      - ENABLE_GITHUB_MODELS=false
+      - ENABLE_OLLAMA=false
+    env_file:
+      - ../.env
+
+  db:
+    image: postgres:15
+    container_name: iq-postgres
+    environment:
+      - POSTGRES_DB=trading_bot
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: iq-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: iq-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # Uncomment for GPU support
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+volumes:
+  postgres_data:
+  redis_data:
+  ollama_data:

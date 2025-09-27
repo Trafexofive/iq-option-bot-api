@@ -1,0 +1,36 @@
+# Core infrastructure services only
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15
+    container_name: iq-postgres-core
+    environment:
+      - POSTGRES_DB=trading_bot
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: iq-redis-core
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: iq-ollama-core
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
+volumes:
+  postgres_data:
+  redis_data:
+  ollama_data:

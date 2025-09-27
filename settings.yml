@@ -1,0 +1,62 @@
+# Global configuration for the IQ Option Bot API
+app:
+  name: "IQ Option Bot API"
+  version: "1.0.0"
+  debug: false
+
+# Database configuration
+database:
+  host: "localhost"
+  port: 5432
+  name: "trading_bot"
+  user: "user"
+  password: "password"
+
+# Redis configuration
+redis:
+  host: "localhost"
+  port: 6379
+  db: 0
+
+# LLM Gateway configuration
+llm_gateway:
+  host: "localhost"
+  port: 8001
+  timeout: 30
+
+# Trading configuration
+trading: # Agent will start at
+  max_daily_trades: 5
+  balance_allowed: "10$"
+  wake_interval: "2m"
+  stop_after_losses: 1
+  trade_amount: 1.0
+  win_amount_multiplier: 1.7 # depending on asset and expiry
+  trading_hours:
+    start: "09:00"
+    end: "17:00"
+  # Alternatively, you can specify specific trading sessions
+  trading_sessions:
+    - "London"
+    - "New York"
+    - "Tokyo"
+  timeframes:
+    - "M1"
+    - "M5"
+    - "M15"
+  context_feeds: # custom context feeds for the LLM
+    - "RSI"
+    - "MACD"
+    - "BollingerBands" # BUILTIN INDICATORS
+    - "./custom_indicators/CustomIndicator.yml" # CUSTOM INDICATORS, yaml manifest will be located in the same folder as the code
+    - "./news/NewsSentimentFeed.yml" # CUSTOM NEWS FEED, yaml manifest will be located in the same folder as the code
+
+# IQ Option configuration
+iq_option:
+  demo_mode: true
+  api_timeout: 30
+
+# Logging configuration
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
