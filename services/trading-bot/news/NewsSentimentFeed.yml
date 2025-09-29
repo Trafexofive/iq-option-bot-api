@@ -1,0 +1,24 @@
+name: "NewsSentimentFeed"
+version: "1.0.0"
+description: "Real-time news sentiment analysis for trading decisions"
+author: "Trading Team"
+type: "news_feed"
+implementation: "news.sentiment_feed.NewsSentimentFeed"
+parameters:
+  api_key: "${NEWS_API_KEY}"
+  max_articles: 50
+  sentiment_threshold: 0.6
+source_url: "https://newsapi.org/v2/everything"
+update_interval: "5m"
+sentiment_analysis: true
+keywords:
+  - "economy"
+  - "market"
+  - "inflation"
+  - "interest rates"
+  - "gdp"
+  - "unemployment"
+  - "central bank"
+  - "forex"
+  - "stocks"
+  - "cryptocurrency"

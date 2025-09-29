@@ -27,10 +27,10 @@ llm_gateway:
 # Trading configuration
 trading: # Agent will start at
   max_daily_trades: 5
-  balance_allowed: "10$"
-  wake_interval: "2m"
+  balance: "10$"
+  wake_interval: "2m" # sync to actual charts timeframe
   stop_after_losses: 1
-  trade_amount: 1.0
+  trade_amount_ratio: 0.1 # percentage of balance to use per trade
   win_amount_multiplier: 1.7 # depending on asset and expiry
   trading_hours:
     start: "09:00"
@@ -50,13 +50,21 @@ trading: # Agent will start at
     - "BollingerBands" # BUILTIN INDICATORS
     - "./custom_indicators/CustomIndicator.yml" # CUSTOM INDICATORS, yaml manifest will be located in the same folder as the code
     - "./news/NewsSentimentFeed.yml" # CUSTOM NEWS FEED, yaml manifest will be located in the same folder as the code
+  triggers: # custom triggers for the LLM
+    - "PriceActionTrigger" # BUILTIN TRIGGER
+    - "./triggers/CustomTrigger.yml" # CUSTOM TRIGGER, yaml manifest will be located in the same folder as the code
 
 # IQ Option configuration
 iq_option:
-  demo_mode: true
+  demo_mode: true  # ALWAYS start with true for safety!
   api_timeout: 30
+  # Safety limits
+  max_trade_amount: 100.0  # Maximum single trade amount
+  max_concurrent_trades: 3  # Maximum simultaneous trades
+  connection_retry_attempts: 3
+  connection_retry_delay: 5  # seconds
 
 # Logging configuration
 logging:
-  level: "INFO"
+  level: "INFO" # DEBUG, INFO, WARNING, ERROR, CRITICAL, VERBOSE
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

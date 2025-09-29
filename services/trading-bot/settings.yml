@@ -1,0 +1,48 @@
+app:
+  debug: false
+  name: IQ Option Bot API
+  version: 1.0.0
+
+database:
+  host: localhost
+  name: trading_bot
+  password: password
+  port: 5432
+  user: user
+
+iq_option:
+  api_timeout: 30
+  credentials_file: null
+  demo_mode: true
+
+llm_gateway:
+  host: localhost
+  port: 8001
+  timeout: 30
+
+logging:
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+  level: INFO
+
+redis:
+  db: 0
+  host: localhost
+  port: 6379
+
+trading:
+  balance: 10$
+
+  context_feeds: []
+  max_daily_trades: 5
+  stop_after_losses: 1
+  timeframes:
+  - M1
+  - M5
+  - M15
+
+  trade_amount_ratio: 0.1
+  trading_hours: null
+  trading_sessions: null
+  triggers: []
+  wake_interval: 2m
+  win_amount_multiplier: 1.7

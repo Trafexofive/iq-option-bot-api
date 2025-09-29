@@ -1,8 +1,13 @@
 version: '3.8'
 
 services:
+  # ======================================================================================
+  # TRADING BOT SERVICE - Main application with IQ Option integration
+  # ======================================================================================
   trading-bot:
-    build: ../services/trading-bot
+    build: 
+      context: ../services/trading-bot
+      dockerfile: Dockerfile
     container_name: iq-trading-bot
     ports:
       - "8000:8000"
@@ -11,17 +16,39 @@ services:
       - REDIS_URL=redis://redis:6379
       - LLM_GATEWAY_URL=http://llm-gateway:8001
       - LOG_LEVEL=INFO
+      - PYTHONPATH=/app
+      # IQ Option API Configuration
+      - IQ_OPTION_API_AVAILABLE=true
+      - TRADING_MODE=demo  # demo/live
     depends_on:
       - db
       - redis
       - llm-gateway
     volumes:
-      - ../services/trading-bot/src:/app/src
+      - ../services/trading-bot:/app
+      # Persistent storage for trading data
+      - trading_data:/app/data
+      - trading_logs:/app/logs
     env_file:
       - ../.env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "com.iq-option-bot.service=trading-bot"
+      - "com.iq-option-bot.version=1.0.0"
 
+  # ======================================================================================
+  # TRADING WORKER - Background processing for trades
+  # ======================================================================================
   trading-worker:
-    build: ../services/trading-bot
+    build: 
+      context: ../services/trading-bot
+      dockerfile: Dockerfile
     container_name: iq-trading-worker
     command: python -m src.core.trading.worker
     environment:
@@ -29,17 +56,30 @@ services:
       - REDIS_URL=redis://redis:6379
       - LLM_GATEWAY_URL=http://llm-gateway:8001
       - LOG_LEVEL=INFO
+      - PYTHONPATH=/app
+      - WORKER_CONCURRENCY=2
     depends_on:
       - db
       - redis
       - llm-gateway
+      - trading-bot
     volumes:
-      - ../services/trading-bot/src:/app/src
+      - ../services/trading-bot:/app
+      - trading_data:/app/data
+      - trading_logs:/app/logs
     env_file:
       - ../.env
+    restart: unless-stopped
+    labels:
+      - "com.iq-option-bot.service=trading-worker"
 
+  # ======================================================================================
+  # LLM GATEWAY - AI/ML service for trading decisions
+  # ======================================================================================
   llm-gateway:
-    build: ../services/llm_gateway
+    build: 
+      context: ../services/llm_gateway
+      dockerfile: Dockerfile
     container_name: iq-llm-gateway
     ports:
       - "8001:8001"
@@ -47,22 +87,52 @@ services:
       - ENABLE_GEMINI=true
       - ENABLE_GROQ=false
       - ENABLE_GITHUB_MODELS=false
-      - ENABLE_OLLAMA=false
+      - ENABLE_OLLAMA=true
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - LOG_LEVEL=INFO
+    depends_on:
+      - ollama
     env_file:
       - ../.env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "com.iq-option-bot.service=llm-gateway"
 
+  # ======================================================================================
+  # DATABASE - PostgreSQL for persistent data storage
+  # ======================================================================================
   db:
-    image: postgres:15
+    image: postgres:15-alpine
     container_name: iq-postgres
     environment:
       - POSTGRES_DB=trading_bot
       - POSTGRES_USER=user
       - POSTGRES_PASSWORD=password
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d trading_bot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    labels:
+      - "com.iq-option-bot.service=database"
 
+  # ======================================================================================
+  # REDIS - In-memory data store for caching and queues
+  # ======================================================================================
   redis:
     image: redis:7-alpine
     container_name: iq-redis
@@ -70,7 +140,21 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    command: redis-server /usr/local/etc/redis/redis.conf
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    labels:
+      - "com.iq-option-bot.service=redis"
 
+  # ======================================================================================
+  # OLLAMA - Local LLM server for AI processing
+  # ======================================================================================
   ollama:
     image: ollama/ollama:latest
     container_name: iq-ollama
@@ -78,6 +162,10 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_HOST=0.0.0.0
+    restart: unless-stopped
     # Uncomment for GPU support
     # deploy:
     #   resources:
@@ -86,8 +174,70 @@ services:
     #         - driver: nvidia
     #           count: 1
     #           capabilities: [gpu]
+    labels:
+      - "com.iq-option-bot.service=ollama"
 
+  # ======================================================================================
+  # NGINX - Reverse proxy and load balancer
+  # ======================================================================================
+  nginx:
+    image: nginx:alpine
+    container_name: iq-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./ssl:/etc/ssl/certs:ro
+    depends_on:
+      - trading-bot
+      - llm-gateway
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "com.iq-option-bot.service=nginx"
+
+# ======================================================================================
+# VOLUMES - Persistent data storage
+# ======================================================================================
 volumes:
   postgres_data:
+    driver: local
+    labels:
+      - "com.iq-option-bot.volume=postgres-data"
+  
   redis_data:
+    driver: local
+    labels:
+      - "com.iq-option-bot.volume=redis-data"
+  
   ollama_data:
+    driver: local
+    labels:
+      - "com.iq-option-bot.volume=ollama-data"
+  
+  trading_data:
+    driver: local
+    labels:
+      - "com.iq-option-bot.volume=trading-data"
+  
+  trading_logs:
+    driver: local
+    labels:
+      - "com.iq-option-bot.volume=trading-logs"
+
+# ======================================================================================
+# NETWORKS - Container networking
+# ======================================================================================
+networks:
+  default:
+    name: iq-option-bot-network
+    driver: bridge
+    labels:
+      - "com.iq-option-bot.network=main"

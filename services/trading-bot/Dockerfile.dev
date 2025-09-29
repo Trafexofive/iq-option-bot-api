@@ -1,0 +1,70 @@
+# ======================================================================================
+# Development Dockerfile for IQ Option Trading Bot API
+# Optimized for hot reload and debugging
+# ======================================================================================
+
+FROM python:3.11-slim
+
+# Set environment variables for development
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONPATH=/app
+ENV PYTHON_ENV=development
+
+# Create working directory
+WORKDIR /app
+
+# Install system dependencies including debugging tools
+RUN apt-get update && apt-get install -y \
+    gcc \
+    postgresql-client \
+    curl \
+    wget \
+    vim \
+    git \
+    htop \
+    # Required for IQ Option API
+    build-essential \
+    libssl-dev \
+    libffi-dev \
+    # Development tools
+    telnet \
+    netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Copy requirements and install Python dependencies including dev dependencies
+COPY requirements.txt requirements.dev.txt* ./
+
+# Install Python dependencies with development tools
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements.txt && \
+    # Install common development dependencies if requirements.dev.txt doesn't exist
+    pip install --no-cache-dir \
+        debugpy \
+        pytest \
+        pytest-asyncio \
+        pytest-cov \
+        black \
+        flake8 \
+        ipdb \
+        ipython
+
+# Create application user
+RUN useradd --create-home --shell /bin/bash --uid 1000 app && \
+    mkdir -p /app/data /app/logs /app/custom_indicators /app/triggers /app/news && \
+    chown -R app:app /app
+
+# Switch to app user
+USER app
+
+# Expose ports
+EXPOSE 8000
+EXPOSE 5678  # Debug port
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8000/api/v1/health || exit 1
+
+# Development command with hot reload
+CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--log-level", "debug"]

@@ -1,0 +1,203 @@
+version: '3.8'
+
+# Development environment with hot reload and debugging
+services:
+  # ======================================================================================
+  # TRADING BOT - Development mode with hot reload
+  # ======================================================================================
+  trading-bot:
+    build: 
+      context: ../services/trading-bot
+      dockerfile: Dockerfile.dev
+    container_name: iq-trading-bot-dev
+    ports:
+      - "8000:8000"
+      - "5678:5678"  # Debug port
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/trading_bot_dev
+      - REDIS_URL=redis://redis:6379
+      - LLM_GATEWAY_URL=http://llm-gateway:8001
+      - LOG_LEVEL=DEBUG
+      - PYTHONPATH=/app
+      - PYTHON_ENV=development
+      - HOT_RELOAD=true
+      - IQ_OPTION_API_AVAILABLE=true
+      - TRADING_MODE=demo
+    depends_on:
+      - db
+      - redis
+      - llm-gateway
+    volumes:
+      # Hot reload - mount source code
+      - ../services/trading-bot:/app
+      - /app/__pycache__  # Exclude pycache
+      - dev_data:/app/data
+      - dev_logs:/app/logs
+    env_file:
+      - ../.env
+    command: uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload --log-level debug
+    restart: unless-stopped
+    labels:
+      - "com.iq-option-bot.env=development"
+
+  # ======================================================================================
+  # LLM GATEWAY - Development mode
+  # ======================================================================================
+  llm-gateway:
+    build: 
+      context: ../services/llm_gateway
+      dockerfile: Dockerfile
+    container_name: iq-llm-gateway-dev
+    ports:
+      - "8001:8001"
+    environment:
+      - ENABLE_GEMINI=true
+      - ENABLE_GROQ=true
+      - ENABLE_GITHUB_MODELS=true
+      - ENABLE_OLLAMA=true
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - LOG_LEVEL=DEBUG
+      - PYTHON_ENV=development
+    depends_on:
+      - ollama
+    volumes:
+      - ../services/llm_gateway:/app
+    env_file:
+      - ../.env
+    command: uvicorn api_gateway:app --host 0.0.0.0 --port 8001 --reload --log-level debug
+    restart: unless-stopped
+
+  # ======================================================================================
+  # DATABASE - Development database
+  # ======================================================================================
+  db:
+    image: postgres:15-alpine
+    container_name: iq-postgres-dev
+    environment:
+      - POSTGRES_DB=trading_bot_dev
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # Development: Enable logging
+      - ./postgres/dev.conf:/etc/postgresql/postgresql.conf:ro
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    restart: unless-stopped
+
+  # ======================================================================================
+  # REDIS - Development cache
+  # ======================================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: iq-redis-dev
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_dev_data:/data
+    command: redis-server --save 60 1000 --loglevel verbose
+    restart: unless-stopped
+
+  # ======================================================================================
+  # OLLAMA - Local LLM (same for dev)
+  # ======================================================================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: iq-ollama-dev
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_dev_data:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=1h  # Shorter for dev
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_DEBUG=1
+    restart: unless-stopped
+
+  # ======================================================================================
+  # DEVELOPMENT TOOLS
+  # ======================================================================================
+  
+  # Adminer - Database management UI
+  adminer:
+    image: adminer:latest
+    container_name: iq-adminer
+    ports:
+      - "8080:8080"
+    environment:
+      - ADMINER_DEFAULT_SERVER=db
+    depends_on:
+      - db
+    restart: unless-stopped
+    labels:
+      - "com.iq-option-bot.service=adminer"
+
+  # Redis Insights - Redis management UI  
+  redis-insight:
+    image: redislabs/redisinsight:latest
+    container_name: iq-redis-insight
+    ports:
+      - "8001:8001"
+    volumes:
+      - redis_insight_data:/db
+    depends_on:
+      - redis
+    restart: unless-stopped
+    labels:
+      - "com.iq-option-bot.service=redis-insight"
+
+  # Mailhog - Email testing (for notifications)
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: iq-mailhog
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI
+    restart: unless-stopped
+    labels:
+      - "com.iq-option-bot.service=mailhog"
+
+# ======================================================================================
+# DEVELOPMENT VOLUMES
+# ======================================================================================
+volumes:
+  postgres_dev_data:
+    driver: local
+    labels:
+      - "com.iq-option-bot.volume=postgres-dev-data"
+  
+  redis_dev_data:
+    driver: local
+    labels:
+      - "com.iq-option-bot.volume=redis-dev-data"
+  
+  ollama_dev_data:
+    driver: local
+    labels:
+      - "com.iq-option-bot.volume=ollama-dev-data"
+  
+  dev_data:
+    driver: local
+    labels:
+      - "com.iq-option-bot.volume=dev-data"
+  
+  dev_logs:
+    driver: local
+    labels:
+      - "com.iq-option-bot.volume=dev-logs"
+  
+  redis_insight_data:
+    driver: local
+
+# ======================================================================================
+# DEVELOPMENT NETWORKS
+# ======================================================================================
+networks:
+  default:
+    name: iq-option-bot-dev-network
+    driver: bridge
+    labels:
+      - "com.iq-option-bot.network=dev"

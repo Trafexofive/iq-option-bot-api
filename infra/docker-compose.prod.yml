@@ -1,0 +1,340 @@
+version: '3.8'
+
+# Production environment with security, monitoring, and scaling
+services:
+  # ======================================================================================
+  # TRADING BOT - Production mode
+  # ======================================================================================
+  trading-bot:
+    build: 
+      context: ../services/trading-bot
+      dockerfile: Dockerfile
+    container_name: iq-trading-bot-prod
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://user:${POSTGRES_PASSWORD}@db:5432/trading_bot_prod
+      - REDIS_URL=redis://redis:6379
+      - LLM_GATEWAY_URL=http://llm-gateway:8001
+      - LOG_LEVEL=INFO
+      - PYTHONPATH=/app
+      - PYTHON_ENV=production
+      - IQ_OPTION_API_AVAILABLE=true
+      - TRADING_MODE=${TRADING_MODE:-demo}
+      # Security
+      - SECURE_SSL_REDIRECT=true
+      - SESSION_COOKIE_SECURE=true
+      - CSRF_COOKIE_SECURE=true
+    depends_on:
+      - db
+      - redis
+      - llm-gateway
+    volumes:
+      - trading_prod_data:/app/data
+      - trading_prod_logs:/app/logs
+    env_file:
+      - ../.env.prod
+    restart: always
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "com.iq-option-bot.env=production"
+      - "traefik.enable=true"
+      - "traefik.http.routers.trading-bot.rule=Host(`api.your-domain.com`)"
+      - "traefik.http.routers.trading-bot.tls=true"
+
+  # ======================================================================================
+  # TRADING WORKER - Production workers with auto-scaling
+  # ======================================================================================
+  trading-worker:
+    build: 
+      context: ../services/trading-bot
+      dockerfile: Dockerfile
+    command: python -m src.core.trading.worker
+    environment:
+      - DATABASE_URL=postgresql://user:${POSTGRES_PASSWORD}@db:5432/trading_bot_prod
+      - REDIS_URL=redis://redis:6379
+      - LLM_GATEWAY_URL=http://llm-gateway:8001
+      - LOG_LEVEL=INFO
+      - PYTHONPATH=/app
+      - WORKER_CONCURRENCY=4
+      - PYTHON_ENV=production
+    depends_on:
+      - db
+      - redis
+      - llm-gateway
+      - trading-bot
+    volumes:
+      - trading_prod_data:/app/data
+      - trading_prod_logs:/app/logs
+    env_file:
+      - ../.env.prod
+    restart: always
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # ======================================================================================
+  # LLM GATEWAY - Production mode
+  # ======================================================================================
+  llm-gateway:
+    build: 
+      context: ../services/llm_gateway
+      dockerfile: Dockerfile
+    container_name: iq-llm-gateway-prod
+    ports:
+      - "8001:8001"
+    environment:
+      - ENABLE_GEMINI=true
+      - ENABLE_GROQ=false
+      - ENABLE_GITHUB_MODELS=false
+      - ENABLE_OLLAMA=false  # Disable for production
+      - LOG_LEVEL=INFO
+      - PYTHON_ENV=production
+    env_file:
+      - ../.env.prod
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ======================================================================================
+  # DATABASE - Production PostgreSQL with replication
+  # ======================================================================================
+  db:
+    image: postgres:15-alpine
+    container_name: iq-postgres-prod
+    environment:
+      - POSTGRES_DB=trading_bot_prod
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+      # Production settings
+      - POSTGRES_SHARED_PRELOAD_LIBRARIES=pg_stat_statements
+    ports:
+      - "127.0.0.1:5432:5432"  # Bind to localhost only
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./postgres/prod.conf:/etc/postgresql/postgresql.conf:ro
+      - postgres_backup:/backup
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d trading_bot_prod"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ======================================================================================
+  # REDIS - Production cache with persistence
+  # ======================================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: iq-redis-prod
+    ports:
+      - "127.0.0.1:6379:6379"  # Bind to localhost only
+    volumes:
+      - redis_prod_data:/data
+      - ./redis/prod.conf:/usr/local/etc/redis/redis.conf:ro
+    command: redis-server /usr/local/etc/redis/redis.conf
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ======================================================================================
+  # NGINX - Production reverse proxy with SSL
+  # ======================================================================================
+  nginx:
+    image: nginx:alpine
+    container_name: iq-nginx-prod
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/prod.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./ssl:/etc/ssl/certs:ro
+      - nginx_cache:/var/cache/nginx
+      - nginx_logs:/var/log/nginx
+    depends_on:
+      - trading-bot
+      - llm-gateway
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ======================================================================================
+  # MONITORING & OBSERVABILITY
+  # ======================================================================================
+  
+  # Prometheus - Metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: iq-prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    restart: always
+    labels:
+      - "com.iq-option-bot.service=prometheus"
+
+  # Grafana - Monitoring dashboard
+  grafana:
+    image: grafana/grafana:latest
+    container_name: iq-grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    depends_on:
+      - prometheus
+    restart: always
+    labels:
+      - "com.iq-option-bot.service=grafana"
+
+  # Node Exporter - System metrics
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: iq-node-exporter
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)'
+    restart: always
+    labels:
+      - "com.iq-option-bot.service=node-exporter"
+
+  # cAdvisor - Container metrics
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: iq-cadvisor
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    restart: always
+    labels:
+      - "com.iq-option-bot.service=cadvisor"
+
+# ======================================================================================
+# PRODUCTION VOLUMES
+# ======================================================================================
+volumes:
+  postgres_prod_data:
+    driver: local
+    labels:
+      - "com.iq-option-bot.volume=postgres-prod-data"
+  
+  postgres_backup:
+    driver: local
+    
+  redis_prod_data:
+    driver: local
+    labels:
+      - "com.iq-option-bot.volume=redis-prod-data"
+  
+  trading_prod_data:
+    driver: local
+    labels:
+      - "com.iq-option-bot.volume=trading-prod-data"
+  
+  trading_prod_logs:
+    driver: local
+    labels:
+      - "com.iq-option-bot.volume=trading-prod-logs"
+      
+  nginx_cache:
+    driver: local
+    
+  nginx_logs:
+    driver: local
+    
+  prometheus_data:
+    driver: local
+    
+  grafana_data:
+    driver: local
+
+# ======================================================================================
+# PRODUCTION NETWORKS
+# ======================================================================================
+networks:
+  default:
+    name: iq-option-bot-prod-network
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: iq-prod-br0
+    labels:
+      - "com.iq-option-bot.network=prod"

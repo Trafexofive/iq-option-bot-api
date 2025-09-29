@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from config.settings import settings
-from src.api.routers import trading, health, llm
+from src.api.routers import trading, health, llm, chart
 from src.core.market.service import MarketService
 from src.integrations.iq_option.service import IQOptionService
 import logging
@@ -52,6 +52,7 @@ async def shutdown_event():
 app.include_router(trading.router, prefix="/api/v1", tags=["trading"])
 app.include_router(health.router, prefix="/api/v1", tags=["health"])
 app.include_router(llm.router, prefix="/api/v1", tags=["llm"])
+app.include_router(chart.router, prefix="/api/v1", tags=["chart"])
 
 
 @app.get("/")

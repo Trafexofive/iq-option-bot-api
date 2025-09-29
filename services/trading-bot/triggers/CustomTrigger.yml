@@ -1,0 +1,21 @@
+name: "CustomTrigger"
+version: "1.0.0" 
+description: "A sophisticated trigger combining price action and volume analysis"
+author: "Trading Team"
+type: "trigger"
+implementation: "triggers.my_custom_trigger.CustomTrigger"
+parameters:
+  min_volume_ratio: 1.5
+  price_threshold: 0.002
+  confirmation_candles: 2
+conditions:
+  - "Volume spike above threshold"
+  - "Price breakout confirmed"
+  - "Multiple timeframe alignment"
+actions:
+  - "BUY"
+  - "SELL"
+  - "HOLD"
+required_indicators:
+  - "RSI"
+  - "BollingerBands"

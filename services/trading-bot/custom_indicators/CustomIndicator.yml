@@ -1,0 +1,23 @@
+name: "CustomIndicator"
+version: "1.0.0"
+description: "A custom technical indicator combining multiple signals"
+author: "Trading Team"
+type: "indicator"
+implementation: "custom_indicators.my_custom_indicator.CustomIndicator"
+parameters:
+  lookback_period: 20
+  sensitivity: 0.5
+  smoothing_factor: 0.3
+inputs:
+  - "close"
+  - "volume"
+outputs:
+  - "signal"
+  - "strength"
+  - "direction"
+timeframe_support:
+  - "M1"
+  - "M5" 
+  - "M15"
+  - "M30"
+  - "H1"
